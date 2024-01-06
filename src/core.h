@@ -35,9 +35,16 @@ typedef struct CueTrackList {
     struct CueTrackList* next;
 } CueTrackList;
 
+typedef struct FileList {
+    char* path;
+    struct FileList* prev;
+    struct FileList* next;
+} FileList;
+
 typedef struct CueData {
     AVDictionary* metadata;
     CueTrackList* tracks;
+    FileList* files;
 } CueData;
 
 typedef struct Context {

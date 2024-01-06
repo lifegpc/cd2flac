@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cpp2c.h"
 #include "cstr_util.h"
 #include "err.h"
 #include "fileop.h"
@@ -49,6 +50,7 @@ int open_cue(Context* ctx, const char* path) {
     char* tmp = nullptr;
     AVDictionary** m = nullptr;
     LinkedList<CueTrack>* current_track = nullptr;
+    auto base = fileop::dirname(path);
     ctx->cue = (CueData*)malloc(sizeof(CueData));
     if (!ctx->cue) {
         av_log(NULL, AV_LOG_FATAL, "Failed to open CUE file: Out of memory.\n");
@@ -133,8 +135,19 @@ int open_cue(Context* ctx, const char* path) {
                         goto end;
                     }
                 }
-                av_dict_set(m, "FILE", v.c_str(), 0);
-                av_log(NULL, AV_LOG_DEBUG, "Set FILE = %s\n", v.c_str());
+                v = fileop::join(base, v);
+                char* path = NULL;
+                if (!cpp2c::string2char(v, path)) {
+                    av_log(NULL, AV_LOG_FATAL, "Failed to parse CUE file: Out of memory.\n");
+                    re = 1;
+                    goto end;
+                }
+                if (!linked_list_append(STR_CPP(ctx->cue->files), &path)) {
+                    av_log(NULL, AV_LOG_FATAL, "Failed to parse CUE file: Out of memory.\n");
+                    re = 1;
+                    goto end;
+                }
+                av_log(NULL, AV_LOG_DEBUG, "Add FILE %s\n", v.c_str());
             } else if (!cstr_stricmp(list[0].c_str(), "rem")) {
                 if (list.size() == 3) {
                     av_dict_set(m, list[1].c_str(), list[2].c_str(), 0);
@@ -255,11 +268,16 @@ void free_cue_track(CueTrack track) {
     av_dict_free(&track.metadata);
 }
 
+void free_char(char* path) {
+    if (path) free(path);
+}
+
 void free_cue(Context* ctx) {
     if (!ctx) return;
     if (ctx->cue) {
         av_dict_free(&ctx->cue->metadata);
         linked_list_clear(CTL_CPP(ctx->cue->tracks), free_cue_track);
+        linked_list_clear(STR_CPP(ctx->cue->files), free_char);
         free(ctx->cue);
         ctx->cue = nullptr;
     }

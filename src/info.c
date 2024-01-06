@@ -66,10 +66,22 @@ void print_track_info(CueTrack track, int indent) {
     print_avdict(track.metadata, indent + 4);
 }
 
+void print_files_list(FileList* files, int indent) {
+    if (!files) return;
+    FileList* cur = files;
+    while (cur) {
+        for (int i = 0; i < indent; i++) av_log(NULL, AV_LOG_INFO, " ");
+        av_log(NULL, AV_LOG_INFO, "%s\n", cur->path);
+        cur = cur->next;
+    }
+}
+
 void print_cue(Context* ctx) {
     if (!ctx->cue) return;
     av_log(NULL, AV_LOG_INFO, "Disc metadata:\n");
     print_avdict(ctx->cue->metadata, 2);
+    av_log(NULL, AV_LOG_INFO, "Files:\n");
+    print_files_list(ctx->cue->files, 2);
     av_log(NULL, AV_LOG_INFO, "Tracks:\n");
     CueTrackList* cur = ctx->cue->tracks;
     while (cur) {
