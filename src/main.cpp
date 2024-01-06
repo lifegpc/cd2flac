@@ -10,6 +10,7 @@
 #include "wchar_util.h"
 
 #include "core.h"
+#include "cue.h"
 #include "info.h"
 #include "open.h"
 
@@ -281,6 +282,10 @@ int main(int argc, char* argv[]) {
         }
     }
     if (ctx->is_cue) {
+        if (open_cue(ctx, device.c_str())) {
+            av_log(NULL, AV_LOG_FATAL, "Failed to open CUE file: %s\n", device.c_str());
+            goto end;
+        }
     } else {
         if (open_cd_device(ctx, device.c_str())) {
             av_log(NULL, AV_LOG_FATAL, "Failed to open device: %s\n", device.c_str());

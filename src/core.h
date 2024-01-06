@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -18,9 +20,30 @@ typedef enum LOGLEVEL {
     LL_TRACE,
 } LOGLEVEL;
 
+typedef struct CueTrack {
+    AVDictionary* metadata;
+    uint8_t number;
+    uint8_t index_number;
+    int64_t index;
+    int64_t pregap;
+    int64_t postgap;
+} CueTrack;
+
+typedef struct CueTrackList {
+    CueTrack d;
+    struct CueTrackList* prev;
+    struct CueTrackList* next;
+} CueTrackList;
+
+typedef struct CueData {
+    AVDictionary* metadata;
+    CueTrackList* tracks;
+} CueData;
+
 typedef struct Context {
     cddb_site_t* cddb_site;
     AVFormatContext* fmt;
+    CueData* cue;
     unsigned char use_cddb: 1;
     unsigned char is_cue: 1;
 } Context;
