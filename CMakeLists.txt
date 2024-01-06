@@ -20,6 +20,8 @@ find_package(AVDEVICE 60 REQUIRED)
 find_package(AVUTIL 58 REQUIRED)
 find_package(SWRESAMPLE 4 REQUIRED)
 find_package(CDDB REQUIRED)
+find_package(OpenSSL 3.0.0 REQUIRED)
+find_package(RapidJSON)
 
 if (ENABLE_INIH)
     find_package(INIH REQUIRED)
@@ -39,10 +41,12 @@ if (NOT HAVE_GETOPT_H)
 endif()
 
 set(ENABLE_ICONV OFF CACHE BOOL "Libiconv is not needed.")
+set(ENABLE_SSL ON)
 add_subdirectory(utils)
 include_directories(utils)
 
 include_directories("${CMAKE_CURRENT_BINARY_DIR}")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/utils")
 
 add_custom_target(cd2flac_version
     ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_SOURCE_DIR}/src/VERSION.cmake"
@@ -59,13 +63,17 @@ endif()
 
 add_executable(cd2flac
 src/main.cpp src/info.h src/info.c src/core.h src/core.cpp src/open.h src/open.c
-src/cue.h src/cue.cpp src/cue_track_list.h src/cue_track_list.cpp "${OFILES}" ${CD2FLAC_RC})
+src/cue.h src/cue.cpp src/cue_track_list.h src/cue_track_list.cpp src/163.h
+src/163.cpp "${OFILES}" ${CD2FLAC_RC})
 add_dependencies(cd2flac cd2flac_version)
 target_compile_definitions(cd2flac PRIVATE -DHAVE_CONFIG_H)
 if (TARGET getopt)
     target_link_libraries(cd2flac getopt)
 endif()
-target_link_libraries(cd2flac AVUTIL::AVUTIL AVFORMAT::AVFORMAT AVCODEC::AVCODEC AVDEVICE::AVDEVICE SWRESAMPLE::SWRESAMPLE CDDB::CDDB INIH::INIH)
+target_link_libraries(cd2flac AVUTIL::AVUTIL AVFORMAT::AVFORMAT AVCODEC::AVCODEC AVDEVICE::AVDEVICE SWRESAMPLE::SWRESAMPLE CDDB::CDDB OpenSSL::Crypto RapidJSON)
+if (HAVE_INIH)
+    target_link_libraries(cd2flac INIH::INIH)
+endif()
 target_link_libraries(cd2flac utils)
 
 install(TARGETS cd2flac)

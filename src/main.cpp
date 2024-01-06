@@ -14,6 +14,7 @@
 #include "./INIReader.h"
 #endif
 
+#include "163.h"
 #include "core.h"
 #include "cue.h"
 #include "info.h"
@@ -379,6 +380,7 @@ int main(int argc, char* argv[]) {
     }
 #endif
     Context* ctx = context_new();
+    NeteaseMusicApi api;
     ctx->use_cddb = no_cddb ? 0 : 1;
     ctx->is_cue = is_cue ? 1 : 0;
     if (ctx->use_cddb) {
@@ -401,6 +403,12 @@ int main(int argc, char* argv[]) {
             av_log(NULL, AV_LOG_FATAL, "Failed to open device: %s\n", device.c_str());
             goto end;
         }
+    }
+    try {
+        api.fetchSongDetail(1311319929);
+    } catch (std::exception& e) {
+        av_log(NULL, AV_LOG_FATAL, "Failed to fetch song detail: %s\n", e.what());
+        goto end;
     }
 end:
     context_free(ctx);

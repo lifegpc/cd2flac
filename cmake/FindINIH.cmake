@@ -24,7 +24,7 @@ if (PC_INIH_FOUND)
         add_library(INIH::INIH ALIAS PkgConfig::PC_INIH)
     endif()
 else()
-    message(FATAL_ERROR "failed to find inih.")
+    message(FATAL_ERROR "failed to find inih. Use -DENABLE_INIH=OFF to disable ini support.")
 endif()
 
 include(FindPackageHandleStandardArgs)
