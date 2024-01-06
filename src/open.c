@@ -36,5 +36,6 @@ int open_cd_device(Context* ctx, const char* device) {
         av_log(NULL, AV_LOG_FATAL, "Failed to find stream info: %s\n", av_err2str(re));
         return 1;
     }
+    av_dump_format(ctx->fmt, 0, device, 0);
     return 0;
 }

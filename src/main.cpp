@@ -6,8 +6,13 @@
 #include <stdio.h>
 #include "getopt.h"
 #include "cstr_util.h"
+#include "fileop.h"
 #include "str_util.h"
 #include "wchar_util.h"
+
+#if HAVE_INIH
+#include "./INIReader.h"
+#endif
 
 #include "core.h"
 #include "cue.h"
@@ -15,6 +20,7 @@
 #include "open.h"
 
 #if _WIN32
+#include <stdlib.h>
 #include "Windows.h"
 #endif
 
@@ -35,6 +41,25 @@
 #define LOG_TRACE 135
 #define LOG_PRINT_LEVEL 136
 #define CUE 137
+
+#if HAVE_INIH
+const std::string default_config_file() {
+#if _WIN32
+    wchar_t* appdata = nullptr;
+    size_t len = 0;
+    if (_wdupenv_s(&appdata, &len, "APPDATA")) return "";
+    std::wstring appdata_w(appdata);
+    free(appdata);
+    std::string app;
+    if (!wchar_util::wstr_to_str(app, appdata_w, CP_UTF8)) return "";
+#else
+    auto home = getenv("HOME");
+    if (!home) return "";
+    std::string app = fileop::join(home, ".config");
+#endif
+    return fileop::join(app, "cd2flac.ini");
+}
+#endif
 
 void print_help() {
     printf("%s", "Usage: cd2flac [OPTIONS] DEVICE OUTPUT\n\
@@ -57,6 +82,10 @@ Options:\n\
     --trace                 Enable trace logging.\n\
     --print-level           Print log level.\n\
     --cue                   Treat input device as CUE file.\n");
+#if HAVE_INIH
+    printf("\
+    -c, --config [PATH]     Config file location. Default: cd2flac.ini, %s.\n", default_config_file().c_str());
+#endif
 }
 
 void print_version(bool verbose) {
@@ -131,10 +160,16 @@ int main(int argc, char* argv[]) {
         { "trace", 0, nullptr, LOG_TRACE },
         { "print-level", 0, nullptr, LOG_PRINT_LEVEL },
         { "cue", 0, nullptr, CUE },
+#if HAVE_INIH
+        { "config", 1, nullptr, 'c' },
+#endif
         nullptr,
     };
     int c;
-    const char* shortopts = "-hvdV";
+    std::string shortopts = "-hvdV";
+#if HAVE_INIH
+    shortopts += "c:";
+#endif
     LOGLEVEL level = LL_INFO;
     bool version = false;
     bool dry_run = false;
@@ -147,7 +182,13 @@ int main(int argc, char* argv[]) {
     bool cddb_no_track_artist = false;
     bool print_level = false;
     bool is_cue = false;
-    while ((c = getopt_long(argc, argv, shortopts, opts, nullptr)) != -1) {
+#if HAVE_INIH
+    std::string config;
+    bool cddb_server_set = false;
+    bool cddb_protocol_set = false;
+    bool cddb_port_set = false;
+#endif
+    while ((c = getopt_long(argc, argv, shortopts.c_str(), opts, nullptr)) != -1) {
         switch (c) {
         case 'h':
             print_help();
@@ -169,6 +210,9 @@ int main(int argc, char* argv[]) {
             break;
         case CDDB_SERVER:
             cddb_server = optarg;
+#if HAVE_INIH
+            cddb_server_set = true;
+#endif
             break;
         case CDDB_PROTOCOL:
             if (cstr_stricmp(optarg, "cddbp") == 0) {
@@ -184,6 +228,9 @@ int main(int argc, char* argv[]) {
 #endif
                 return 1;
             }
+#if HAVE_INIH
+            cddb_protocol_set = true;
+#endif
             break;
         case CDDB_PORT:
             if (sscanf(optarg, "%u", &cddb_port) != 1) {
@@ -193,6 +240,9 @@ int main(int argc, char* argv[]) {
 #endif
                 return 1;
             }
+#if HAVE_INIH
+            cddb_port_set = true;
+#endif
             break;
         case CDDB_NO_TRACK_ARTIST:
             cddb_no_track_artist = true;
@@ -209,6 +259,11 @@ int main(int argc, char* argv[]) {
         case CUE:
             is_cue = true;
             break;
+#if HAVE_INIH
+        case 'c':
+            config = optarg;
+            break;
+#endif
         case 1:
             if (device.empty()) {
                 device = optarg;
@@ -271,6 +326,58 @@ int main(int argc, char* argv[]) {
             is_cue = true;
         }
     }
+#if HAVE_INIH
+    if (!config.empty() && !fileop::exists(config)) {
+        av_log(NULL, AV_LOG_FATAL, "Config file not exists: %s\n", config.c_str());
+        return 1;
+    } else if (config.empty()) {
+        if (fileop::exists("cd2flac.ini")) {
+            config = "cd2flac.ini";
+        } else {
+            auto tmp = default_config_file();
+            if (!tmp.empty() && fileop::exists(tmp)) {
+                config = tmp;
+            }
+        }
+    }
+    if (!config.empty()) {
+        av_log(NULL, AV_LOG_DEBUG, "Using config file: %s\n", config.c_str());
+        INIReader reader(config);
+        auto error = reader.ParseError();
+        if (error == -1) {
+            av_log(NULL, AV_LOG_FATAL, "Failed to open config file: %s\n", config.c_str());
+            return 1;
+        } else if (error > 0) {
+            av_log(NULL, AV_LOG_FATAL, "Failed to parse config file %s: Syntax error on line %i\n", config.c_str(), error);
+            return 1;
+        }
+        if (!no_cddb) {
+            no_cddb = !reader.GetBoolean("cddb", "enabled", true);
+        }
+        if (!cddb_server_set) {
+            cddb_server = reader.Get("cddb", "server", "gnudb.org");
+        }
+        if (!cddb_protocol_set) {
+            auto protocol = reader.Get("cddb", "protocol", "http");
+            if (cstr_stricmp(protocol.c_str(), "cddbp") == 0) {
+                cddb_protocol = PROTO_CDDBP;
+            } else if (cstr_stricmp(protocol.c_str(), "http") == 0) {
+                cddb_protocol = PROTO_HTTP;
+            } else if (cstr_stricmp(protocol.c_str(), "unknown") == 0) {
+                cddb_protocol = PROTO_UNKNOWN;
+            } else {
+                av_log(NULL, AV_LOG_FATAL, "Unknown CDDB protocol: %s\n", protocol.c_str());
+                return 1;
+            }
+        }
+        if (!cddb_port_set) {
+            cddb_port = reader.GetInteger("cddb", "port", 80);
+        }
+        if (!cddb_no_track_artist) {
+            cddb_no_track_artist = reader.GetBoolean("cddb", "no_track_artist", false);
+        }
+    }
+#endif
     Context* ctx = context_new();
     ctx->use_cddb = no_cddb ? 0 : 1;
     ctx->is_cue = is_cue ? 1 : 0;
@@ -279,6 +386,9 @@ int main(int argc, char* argv[]) {
         if (re != CDDB_ERR_OK) {
             av_log(NULL, AV_LOG_FATAL, "Failed to initialize CDDB site: %s\n", cddb_error_str(re));
             goto end;
+        }
+        if (cddb_no_track_artist) {
+            libcddb_set_flags(CDDB_F_NO_TRACK_ARTIST);
         }
     }
     if (ctx->is_cue) {
@@ -292,7 +402,6 @@ int main(int argc, char* argv[]) {
             goto end;
         }
     }
-    if (ctx->fmt) av_dump_format(ctx->fmt, 0, device.c_str(), 0);
 end:
     context_free(ctx);
     return 0;

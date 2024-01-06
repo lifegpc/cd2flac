@@ -6,6 +6,8 @@ if (MSVC)
     add_compile_options(/utf-8)
 endif()
 
+option(ENABLE_INIH "Enable ini support with inih." ON)
+
 include(CheckIncludeFiles)
 include(CheckSymbolExists)
 include(GNUInstallDirs)
@@ -18,6 +20,11 @@ find_package(AVDEVICE 60 REQUIRED)
 find_package(AVUTIL 58 REQUIRED)
 find_package(SWRESAMPLE 4 REQUIRED)
 find_package(CDDB REQUIRED)
+
+if (ENABLE_INIH)
+    find_package(INIH REQUIRED)
+    set(HAVE_INIH 1)
+endif()
 
 if (WIN32)
     check_symbol_exists(printf_s "stdio.h" HAVE_PRINTF_S)
@@ -46,15 +53,19 @@ if (WIN32)
     set_source_files_properties(${CD2FLAC_RC} PROPERTIES GENERATED TRUE)
 endif()
 
+if (HAVE_INIH)
+    list(APPEND OFILES src/INIReader.cpp src/INIReader.h)
+endif()
+
 add_executable(cd2flac
 src/main.cpp src/info.h src/info.c src/core.h src/core.cpp src/open.h src/open.c
-src/cue.h src/cue.cpp src/cue_track_list.h src/cue_track_list.cpp ${CD2FLAC_RC})
+src/cue.h src/cue.cpp src/cue_track_list.h src/cue_track_list.cpp "${OFILES}" ${CD2FLAC_RC})
 add_dependencies(cd2flac cd2flac_version)
 target_compile_definitions(cd2flac PRIVATE -DHAVE_CONFIG_H)
 if (TARGET getopt)
     target_link_libraries(cd2flac getopt)
 endif()
-target_link_libraries(cd2flac AVUTIL::AVUTIL AVFORMAT::AVFORMAT AVCODEC::AVCODEC AVDEVICE::AVDEVICE SWRESAMPLE::SWRESAMPLE CDDB::CDDB)
+target_link_libraries(cd2flac AVUTIL::AVUTIL AVFORMAT::AVFORMAT AVCODEC::AVCODEC AVDEVICE::AVDEVICE SWRESAMPLE::SWRESAMPLE CDDB::CDDB INIH::INIH)
 target_link_libraries(cd2flac utils)
 
 install(TARGETS cd2flac)
