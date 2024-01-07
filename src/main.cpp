@@ -4,6 +4,7 @@
 #include "cd2flac_version.h"
 
 #include <stdio.h>
+#include <vector>
 #include "getopt.h"
 #include "cstr_util.h"
 #include "fileop.h"
@@ -87,6 +88,21 @@ Options:\n\
     printf("\
     -c, --config [PATH]     Config file location. Default: cd2flac.ini, %s.\n", default_config_file().c_str());
 #endif
+}
+
+void print_163_help() {
+    printf("%s", "Usage: cd2flac 163 [OPTIONS] ACTIONS\n\
+\n\
+Actions:\n\
+    fetchSongDetail ID [ID [ID ...]]\n\
+                            Fetch song detail.\n\
+Options:\n\
+    -h, --help              Print this help message.\n\
+    -v, --verbose           Enable verbose logging.\n\
+    -V, --version           Print version.\n\
+    --debug                 Enable debug logging.\n\
+    --trace                 Enable trace logging.\n\
+    --print-level           Print log level.\n");
 }
 
 void print_version(bool verbose) {
@@ -174,6 +190,7 @@ int main(int argc, char* argv[]) {
     LOGLEVEL level = LL_INFO;
     bool version = false;
     bool dry_run = false;
+    std::vector<std::string> args;
     std::string device;
     std::string output;
     bool no_cddb = false;
@@ -183,6 +200,8 @@ int main(int argc, char* argv[]) {
     bool cddb_no_track_artist = false;
     bool print_level = false;
     bool is_cue = false;
+    bool n163 = false;
+    bool printh = false;
 #if HAVE_INIH
     std::string config;
     bool cddb_server_set = false;
@@ -192,11 +211,8 @@ int main(int argc, char* argv[]) {
     while ((c = getopt_long(argc, argv, shortopts.c_str(), opts, nullptr)) != -1) {
         switch (c) {
         case 'h':
-            print_help();
-#if _WIN32
-            if (have_wargv) wchar_util::freeArgv(wargv, wargc);
-#endif
-            return 0;
+            printh = true;
+            break;
         case 'v':
             level = LL_VERBOSE;
             break;
@@ -266,17 +282,7 @@ int main(int argc, char* argv[]) {
             break;
 #endif
         case 1:
-            if (device.empty()) {
-                device = optarg;
-            } else if (output.empty()) {
-                output = optarg;
-            } else {
-                av_log(NULL, AV_LOG_FATAL, "Too many arguments.\n");
-#if _WIN32
-                if (have_wargv) wchar_util::freeArgv(wargv, wargc);
-#endif
-                return 1;
-            }
+            args.push_back(optarg);
             break;
         case '?':
         default:
@@ -292,14 +298,6 @@ int main(int argc, char* argv[]) {
     if (version) {
         print_version(level >= LL_VERBOSE);
         return 0;
-    }
-    if (device.empty()) {
-        av_log(NULL, AV_LOG_FATAL, "Device not specified.\n");
-        return 1;
-    }
-    if (output.empty()) {
-        av_log(NULL, AV_LOG_FATAL, "Output not specified.\n");
-        return 1;
     }
     switch (level) {
     case LL_INFO:
@@ -321,7 +319,29 @@ int main(int argc, char* argv[]) {
     if (!no_cddb) {
         cddb_log_set_handler(cddb_log_to_av_log);
     }
-    if (!is_cue) {
+    if (!args.size()) {
+        if (printh) {
+            print_help();
+            return 0;
+        }
+        av_log(NULL, AV_LOG_FATAL, "Device not specified.\n");
+        return 1;
+    }
+    if (args[0] == "163") n163 = true;
+    else device = args[0];
+    if (printh) {
+        if (!n163) print_help();
+        else print_163_help();
+    }
+    if (!device.empty()) {
+        if (args.size() > 1) {
+            output = args[1];
+        } else {
+            av_log(NULL, AV_LOG_FATAL, "Output not specified.\n");
+            return 1;
+        }
+    }
+    if (!is_cue && !n163) {
         if (str_util::str_endswith(device, ".cue")) {
             av_log(NULL, AV_LOG_DEBUG, "Treat input device as CUE file because device ends with .cue.\n");
             is_cue = true;
@@ -379,8 +399,41 @@ int main(int argc, char* argv[]) {
         }
     }
 #endif
+    if (n163) {
+        NeteaseMusicApi api;
+        if (args.size() == 1) {
+            print_163_help();
+            return 0;
+        }
+        std::string act = args[1];
+        if (!cstr_strcasecmp(act.c_str(), "fetchSongDetail")) {
+            if (args.size() == 2) {
+                av_log(NULL, AV_LOG_FATAL, "At least one song id needed.\n");
+                return 1;
+            }
+            std::list<std::uint64_t> ids;
+            uint64_t t;
+            for (size_t i = 2; i < args.size(); i++) {
+                if (sscanf(args[i].c_str(), "%" SCNu64, &t) != 1) {
+                    av_log(NULL, AV_LOG_FATAL, "Invalid song id: %s\n", args[i].c_str());
+                    return 1;
+                }
+                ids.push_back(t);
+            }
+            try {
+                auto re = api.fetchSongDetails(ids);
+                printf("%s\n", api.toJson(re).c_str());
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to fetch song details: %s\n", e.what());
+                return 1;
+            }
+        } else {
+            av_log(NULL, AV_LOG_FATAL, "Unknown action: %s\n", act.c_str());
+            return 1;
+        }
+        return 0;
+    }
     Context* ctx = context_new();
-    NeteaseMusicApi api;
     ctx->use_cddb = no_cddb ? 0 : 1;
     ctx->is_cue = is_cue ? 1 : 0;
     if (ctx->use_cddb) {
@@ -403,12 +456,6 @@ int main(int argc, char* argv[]) {
             av_log(NULL, AV_LOG_FATAL, "Failed to open device: %s\n", device.c_str());
             goto end;
         }
-    }
-    try {
-        api.fetchSongDetail(1311319929);
-    } catch (std::exception& e) {
-        av_log(NULL, AV_LOG_FATAL, "Failed to fetch song detail: %s\n", e.what());
-        goto end;
     }
 end:
     context_free(ctx);

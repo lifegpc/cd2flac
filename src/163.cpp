@@ -13,6 +13,7 @@ extern "C" {
 #include "openssl/pem.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <regex>
@@ -61,6 +62,10 @@ Document NeteaseMusicApi::fetchSongDetails(std::list<uint64_t> id) {
     d.AddMember("c", s, d.GetAllocator());
     weapi(r, d);
     auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "fetchSongDetail return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
     auto re_text = re.readAll();
     av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
     return fromJson(re_text);
