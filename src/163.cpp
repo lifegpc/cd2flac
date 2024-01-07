@@ -15,6 +15,7 @@ extern "C" {
 #include "rapidjson/writer.h"
 #include <stdlib.h>
 #include <string.h>
+#include <regex>
 
 
 const std::string iv = "0102030405060708";
@@ -35,17 +36,34 @@ NeteaseMusicApi::NeteaseMusicApi() {
     this->client.headers["Referer"] = "https://music.163.com/";
 }
 
-void NeteaseMusicApi::fetchSongDetail(int id) {
-    auto r = this->client.request("/weapi/v3/song/detail", "POST");
-    av_log(nullptr, AV_LOG_DEBUG, "POST /weapi/v3/song/detail\n");
+Document NeteaseMusicApi::fetchSongDetail(uint64_t id) {
+    return fetchSongDetails({id});
+}
+
+Document NeteaseMusicApi::fetchSongDetails(std::list<uint64_t> id) {
+    auto r = this->client.request("/api/v3/song/detail", "POST");
+    av_log(nullptr, AV_LOG_DEBUG, "POST /api/v3/song/detail\n");
     Document d;
     d.SetObject();
     Value s;
-    std::string ids = "[{\"id\":" + std::to_string(id) + "}]";
+    Document c;
+    c.SetArray();
+    for (auto &i: id) {
+        Value v;
+        v.SetObject();
+        Value id;
+        id.SetUint64(i);
+        v.AddMember("id", id, d.GetAllocator());
+        c.PushBack(v, d.GetAllocator());
+    }
+    std::string ids = toJson(c);
     s.SetString(ids.c_str(), d.GetAllocator());
     d.AddMember("c", s, d.GetAllocator());
     weapi(r, d);
-    r.send();
+    auto re = r.send();
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
 }
 
 std::string NeteaseMusicApi::aesEncrypt(std::string text, std::string mode, std::string key, std::string iv, bool base64) {
@@ -138,55 +156,67 @@ std::string NeteaseMusicApi::rsaEncrypt(std::string text, std::string key) {
     std::string re;
     unsigned char* buf = nullptr;
     int buf_len;
-    unsigned char* obuf = nullptr;
     int size;
+    const BIGNUM* n = nullptr, *e = nullptr;
+    BIGNUM* bn = nullptr, *ren = nullptr;
+    BN_CTX* ctx = nullptr;
     PEM_read_bio_RSA_PUBKEY(pub, &rsa, nullptr, nullptr);
     if (!rsa) {
         av_log(nullptr, AV_LOG_ERROR, "PEM_read_bio_RSA_PUBKEY failed\n");
         goto end;
     }
     size = RSA_size(rsa);
-    printf("%i", size);
     buf = (unsigned char*)malloc(size);
     if (!buf) {
         av_log(nullptr, AV_LOG_ERROR, "malloc failed\n");
         goto end;
     }
-    obuf = (unsigned char*)malloc(size);
-    if (!obuf) {
-        av_log(nullptr, AV_LOG_ERROR, "malloc failed\n");
+    n = RSA_get0_n(rsa);
+    e = RSA_get0_e(rsa);
+    bn = BN_new();
+    if (!bn) {
+        av_log(nullptr, AV_LOG_ERROR, "BN_new failed\n");
         goto end;
     }
-    memset(obuf, 0, size);
-    memcpy(obuf, text.c_str(), text.length());
-    buf_len = RSA_public_encrypt(size, obuf, buf, rsa, RSA_NO_PADDING);
-    if (buf_len == -1) {
-        char err[130];
-        ERR_load_CRYPTO_strings();
-        ERR_error_string(ERR_get_error(), err);
-        av_log(nullptr, AV_LOG_ERROR, "RSA_public_encrypt failed: %s\n", err);
+    ren = BN_new();
+    if (!ren) {
+        av_log(nullptr, AV_LOG_ERROR, "BN_new failed\n");
         goto end;
     }
+    BN_bin2bn((const unsigned char*)text.c_str(), text.length(), bn);
+    ctx = BN_CTX_new();
+    if (!ctx) {
+        av_log(nullptr, AV_LOG_ERROR, "BN_CTX_new failed\n");
+        goto end;
+    }
+    BN_mod_exp(ren, bn, e, n, ctx);
+    buf_len = BN_bn2bin(ren, buf);
     re = std::string((const char*)buf, buf_len);
     re = str_util::str_hex(re);
 end:
     if (pub) BIO_free(pub);
     if (rsa) RSA_free(rsa);
     if (buf) free(buf);
-    if (obuf) free(obuf);
+    if (bn) BN_free(bn);
+    if (ren) BN_free(ren);
+    if (ctx) BN_CTX_free(ctx);
     return re;
 }
+
+const std::regex weapiRegex = std::regex("\\w*api");
+static bool randed = false;
 
 void NeteaseMusicApi::weapi(Request& req, rapidjson::Document& d) {
     Value csrf_token;
     csrf_token.SetString("", d.GetAllocator());
     d.AddMember("csrf_token", csrf_token, d.GetAllocator());
-    StringBuffer buffer;
-    Writer<StringBuffer> writer(buffer);
-    d.Accept(writer);
-    std::string text = buffer.GetString();
+    std::string text = toJson(d);
     av_log(nullptr, AV_LOG_DEBUG, "Request params: %s\n", text.c_str());
     char secKey[16] = {0};
+    if (!randed) {
+        srand(time(nullptr));
+        randed = true;
+    }
     for (int i = 0; i < 16; i++) {
         secKey[i] = base62[rand() % 62];
     }
@@ -201,11 +231,25 @@ void NeteaseMusicApi::weapi(Request& req, rapidjson::Document& d) {
     }
     QueryData data;
     data.set("params", text);
-    secretKey.reserve();
+    secretKey = std::string(secretKey.rbegin(), secretKey.rend());
     text = rsaEncrypt(secretKey, publicKey);
     if (text.empty()) {
         throw std::runtime_error("rsaEncrypt failed");
     }
     data.set("encSecKey", text);
     req.setBody(new QueryData(data));
+    req.path = std::regex_replace(req.path, weapiRegex, "weapi");
+}
+
+std::string NeteaseMusicApi::toJson(rapidjson::Document& d) {
+    StringBuffer buffer;
+    Writer<StringBuffer> writer(buffer);
+    d.Accept(writer);
+    return buffer.GetString();
+}
+
+rapidjson::Document NeteaseMusicApi::fromJson(std::string& s) {
+    Document d;
+    d.Parse(s.c_str(), s.length());
+    return std::move(d);
 }
