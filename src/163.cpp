@@ -31,7 +31,6 @@ const std::string eapiKey = "e82ckenh8dichen8";
 using namespace rapidjson;
 
 NeteaseMusicApi::NeteaseMusicApi() {
-    this->client.options.https = true;
     this->client.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.1938.39 Safari/537.36";
     this->client.headers["Connection"] = "close";
     this->client.headers["Referer"] = "https://music.163.com/";

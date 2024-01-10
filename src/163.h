@@ -18,5 +18,5 @@ public:
     std::string toJson(rapidjson::Document& d);
     rapidjson::Document fromJson(std::string& s);
 private:
-    HttpClient client = HttpClient("music.163.com");
+    HttpClient client = HttpClient("https://music.163.com");
 };
