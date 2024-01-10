@@ -96,6 +96,7 @@ void print_163_help() {
 Actions:\n\
     fetchSongDetail ID [ID [ID ...]]\n\
                             Fetch song detail.\n\
+    fetchAlbum ID           Fetch album detail.\n\
 Options:\n\
     -h, --help              Print this help message.\n\
     -v, --verbose           Enable verbose logging.\n\
@@ -425,6 +426,23 @@ int main(int argc, char* argv[]) {
                 printf("%s\n", api.toJson(re).c_str());
             } catch (std::exception& e) {
                 av_log(NULL, AV_LOG_FATAL, "Failed to fetch song details: %s\n", e.what());
+                return 1;
+            }
+        } else if (!cstr_stricmp(act.c_str(), "fetchAlbum")) {
+            if (args.size() < 3) {
+                av_log(NULL, AV_LOG_FATAL, "Album id needed.\n");
+                return 1;
+            }
+            uint64_t id;
+            if (sscanf(args[2].c_str(), "%" SCNu64, &id) != 1) {
+                av_log(NULL, AV_LOG_FATAL, "Invalid album id: %s\n", args[2].c_str());
+                return 1;
+            }
+            try {
+                auto re = api.fetchAlbum(id);
+                printf("%s\n", api.toJson(re).c_str());
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to fetch album: %s\n", e.what());
                 return 1;
             }
         } else {

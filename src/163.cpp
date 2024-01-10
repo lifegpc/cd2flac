@@ -70,6 +70,22 @@ Document NeteaseMusicApi::fetchSongDetails(std::list<uint64_t> id) {
     return fromJson(re_text);
 }
 
+Document NeteaseMusicApi::fetchAlbum(uint64_t id) {
+    auto r = this->client.request("/api/v1/album/" + std::to_string(id), "POST");
+    av_log(nullptr, AV_LOG_DEBUG, "POST /api/v1/album/%" PRIu64 "\n", id);
+    Document d;
+    d.SetObject();
+    weapi(r, d);
+    auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "fetchAlbum return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
+}
+
 std::string NeteaseMusicApi::aesEncrypt(std::string text, std::string mode, std::string key, std::string iv, bool base64) {
     const EVP_CIPHER *cipher = nullptr;
     if (!cstr_stricmp(mode.c_str(), "cbc")) {
