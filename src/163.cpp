@@ -30,10 +30,13 @@ const std::string eapiKey = "e82ckenh8dichen8";
 
 using namespace rapidjson;
 
-NeteaseMusicApi::NeteaseMusicApi() {
+NeteaseMusicApi::NeteaseMusicApi(std::string cookiePath) {
     this->client.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.1938.39 Safari/537.36";
     this->client.headers["Connection"] = "close";
     this->client.headers["Referer"] = "https://music.163.com/";
+    this->client.cookies = &this->cookies;
+    this->cookies.path = cookiePath;
+    this->cookies.load();
 }
 
 Document NeteaseMusicApi::fetchSongDetail(uint64_t id) {
@@ -100,6 +103,99 @@ Document NeteaseMusicApi::fetchLyric(uint64_t id) {
     av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
     if (re.code != 200) {
         av_log(nullptr, AV_LOG_WARNING, "fetchLyric return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
+}
+
+Document NeteaseMusicApi::fetchLoginStatus() {
+    auto r = this->client.request("/weapi/w/nuser/account/get", "POST");
+    av_log(nullptr, AV_LOG_DEBUG, "POST /weapi/w/nuser/account/get\n");
+    Document d;
+    d.SetObject();
+    weapi(r, d);
+    auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "fetchLoginStatus return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
+}
+
+Document NeteaseMusicApi::sentSms(std::string phone, std::string countrycode) {
+    auto r = this->client.request("/api/sms/captcha/sent", "POST");
+    av_log(nullptr, AV_LOG_DEBUG, "POST /api/sms/captcha/sent\n");
+    Document d;
+    d.SetObject();
+    Value phoneValue;
+    phoneValue.SetString(phone.c_str(), d.GetAllocator());
+    d.AddMember("cellphone", phoneValue, d.GetAllocator());
+    Value countrycodeValue;
+    if (countrycode.find("+") == 0) {
+        countrycode = countrycode.substr(1);
+    }
+    countrycodeValue.SetString(countrycode.c_str(), d.GetAllocator());
+    d.AddMember("ctcode", countrycodeValue, d.GetAllocator());
+    weapi(r, d);
+    auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "sentSms return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
+}
+
+Document NeteaseMusicApi::loginWithSms(std::string phone, std::string code, std::string countrycode) {
+    auto r = this->client.request("/api/login/cellphone", "POST");
+    av_log(nullptr, AV_LOG_DEBUG, "POST /api/login/cellphone\n");
+    Document d;
+    d.SetObject();
+    Value phoneValue;
+    phoneValue.SetString(phone.c_str(), d.GetAllocator());
+    d.AddMember("phone", phoneValue, d.GetAllocator());
+    Value countrycodeValue;
+    if (countrycode.find("+") == 0) {
+        countrycode = countrycode.substr(1);
+    }
+    countrycodeValue.SetString(countrycode.c_str(), d.GetAllocator());
+    d.AddMember("countrycode", countrycodeValue, d.GetAllocator());
+    Value codeValue;
+    codeValue.SetString(code.c_str(), d.GetAllocator());
+    d.AddMember("captcha", codeValue, d.GetAllocator());
+    Value rememberLoginValue;
+    rememberLoginValue.SetString("true", d.GetAllocator());
+    d.AddMember("rememberLogin", rememberLoginValue, d.GetAllocator());
+    weapi(r, d);
+    r.options.use_custom_cookie = true;
+    auto cookie = parseCookie(this->cookies.getCookieHeader(r.host, r.path, r.https));
+    cookie["os"] = "ios";
+    cookie["appver"] = "8.20.21";
+    r.headers["Cookie"] = dumpCookie(cookie);
+    auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "loginWithSms return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
+}
+
+Document NeteaseMusicApi::loginRefresh() {
+    auto r = this->client.request("/weapi/login/token/refresh", "POST");
+    av_log(nullptr, AV_LOG_DEBUG, "POST /weapi/login/token/refresh\n");
+    Document d;
+    d.SetObject();
+    weapi(r, d);
+    auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "loginRefresh return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
     }
     auto re_text = re.readAll();
     av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
@@ -249,7 +345,12 @@ static bool randed = false;
 
 void NeteaseMusicApi::weapi(Request& req, rapidjson::Document& d) {
     Value csrf_token;
-    csrf_token.SetString("", d.GetAllocator());
+    std::string csrf;
+    auto cookie = parseCookie(this->cookies.getCookieHeader(req.host, req.path, req.https));
+    if (cookie.find("__csrf") != cookie.end()) {
+        csrf = cookie["__csrf"];
+    }
+    csrf_token.SetString(csrf.c_str(), d.GetAllocator());
     d.AddMember("csrf_token", csrf_token, d.GetAllocator());
     std::string text = toJson(d);
     av_log(nullptr, AV_LOG_DEBUG, "Request params: %s\n", text.c_str());

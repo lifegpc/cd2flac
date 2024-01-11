@@ -31,6 +31,7 @@ endif()
 if (WIN32)
     check_symbol_exists(printf_s "stdio.h" HAVE_PRINTF_S)
     check_symbol_exists(sscanf_s "stdio.h" HAVE_SSCANF_S)
+    check_symbol_exists(scanf_s "stdio.h" HAVE_SCANF_S)
 endif()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/config.h.in" "${CMAKE_CURRENT_BINARY_DIR}/config.h")
 
@@ -42,6 +43,7 @@ endif()
 
 set(ENABLE_ICONV OFF CACHE BOOL "Libiconv is not needed.")
 set(ENABLE_SSL ON)
+set(ENABLE_ZLIB ON CACHE BOOL "Enable zlib by default.")
 add_subdirectory(utils)
 include_directories(utils)
 

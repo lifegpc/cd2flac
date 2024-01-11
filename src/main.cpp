@@ -34,6 +34,10 @@
 #define sscanf sscanf_s
 #endif
 
+#if HAVE_SCANF_S
+#define scanf scanf_s
+#endif
+
 #define NO_CDDB 129
 #define CDDB_SERVER 130
 #define CDDB_PROTOCOL 131
@@ -43,6 +47,7 @@
 #define LOG_TRACE 135
 #define LOG_PRINT_LEVEL 136
 #define CUE 137
+#define COOKIES 138
 
 #if HAVE_INIH
 const std::string default_config_file() {
@@ -62,6 +67,23 @@ const std::string default_config_file() {
     return fileop::join(app, "cd2flac.ini");
 }
 #endif
+
+std::string default_163_cookies_file() {
+#if _WIN32
+    wchar_t* appdata = nullptr;
+    size_t len = 0;
+    if (_wdupenv_s(&appdata, &len, "APPDATA")) return "";
+    std::wstring appdata_w(appdata);
+    free(appdata);
+    std::string app;
+    if (!wchar_util::wstr_to_str(app, appdata_w, CP_UTF8)) return "";
+#else
+    auto home = getenv("HOME");
+    if (!home) return "";
+    std::string app = fileop::join(home, ".config");
+#endif
+    return fileop::join(app, "cd2flac_163.txt");
+}
 
 void print_help() {
     printf("%s", "Usage: cd2flac [OPTIONS] DEVICE OUTPUT\n\
@@ -91,20 +113,28 @@ Options:\n\
 }
 
 void print_163_help() {
-    printf("%s", "Usage: cd2flac 163 [OPTIONS] ACTIONS\n\
+    printf("Usage: cd2flac 163 [OPTIONS] ACTIONS\n\
 \n\
 Actions:\n\
     fetchSongDetail ID [ID [ID ...]]\n\
                             Fetch song detail.\n\
     fetchAlbum ID           Fetch album detail.\n\
     fetchLyric ID           Fetch lyric.\n\
+    fetchLoginStatus        Fetch login status.\n\
+    sentSms [+CONTRYCODE] PHONE\n\
+                            Send CAPTCHA with SMS.\n\
+    loginWithSms [+CONTRYCODE] PHONE [CAPTCHA]\n\
+                            Login with SMS CAPTCHA.\n\
+    loginRefresh            Refresh login.\n\
 Options:\n\
     -h, --help              Print this help message.\n\
     -v, --verbose           Enable verbose logging.\n\
     -V, --version           Print version.\n\
     --debug                 Enable debug logging.\n\
     --trace                 Enable trace logging.\n\
-    --print-level           Print log level.\n");
+    --print-level           Print log level.\n\
+    --cookies [PATH]        Cookies file location. Default: %s.\n",
+    default_163_cookies_file().c_str());
 }
 
 void print_version(bool verbose) {
@@ -179,6 +209,7 @@ int main(int argc, char* argv[]) {
         { "trace", 0, nullptr, LOG_TRACE },
         { "print-level", 0, nullptr, LOG_PRINT_LEVEL },
         { "cue", 0, nullptr, CUE },
+        { "cookies", 1, nullptr, COOKIES },
 #if HAVE_INIH
         { "config", 1, nullptr, 'c' },
 #endif
@@ -204,11 +235,13 @@ int main(int argc, char* argv[]) {
     bool is_cue = false;
     bool n163 = false;
     bool printh = false;
+    std::string n163_cookies;
 #if HAVE_INIH
     std::string config;
     bool cddb_server_set = false;
     bool cddb_protocol_set = false;
     bool cddb_port_set = false;
+    bool n163_cookies_set = false;
 #endif
     while ((c = getopt_long(argc, argv, shortopts.c_str(), opts, nullptr)) != -1) {
         switch (c) {
@@ -283,6 +316,12 @@ int main(int argc, char* argv[]) {
             config = optarg;
             break;
 #endif
+        case COOKIES:
+            n163_cookies = optarg;
+#if HAVE_INIH
+            n163_cookies_set = true;
+#endif
+            break;
         case 1:
             args.push_back(optarg);
             break;
@@ -400,10 +439,13 @@ int main(int argc, char* argv[]) {
         if (!cddb_no_track_artist) {
             cddb_no_track_artist = reader.GetBoolean("cddb", "no_track_artist", false);
         }
+        if (!n163_cookies_set) {
+            n163_cookies = reader.Get("163", "cookies", default_163_cookies_file());
+        }
     }
 #endif
     if (n163) {
-        NeteaseMusicApi api;
+        NeteaseMusicApi api(n163_cookies);
         if (args.size() == 1) {
             print_163_help();
             return 0;
@@ -462,6 +504,108 @@ int main(int argc, char* argv[]) {
                 printf("%s\n", api.toJson(re).c_str());
             } catch (std::exception& e) {
                 av_log(NULL, AV_LOG_FATAL, "Failed to fetch lyric: %s\n", e.what());
+                return 1;
+            }
+        } else if (!cstr_stricmp(act.c_str(), "fetchLoginStatus")) {
+            try {
+                auto re = api.fetchLoginStatus();
+                printf("%s\n", api.toJson(re).c_str());
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to fetch login status: %s\n", e.what());
+                return 1;
+            }
+        } else if (!cstr_stricmp(act.c_str(), "sentSms")) {
+            if (args.size() < 3) {
+                av_log(NULL, AV_LOG_FATAL, "Phone number needed.\n");
+                return 1;
+            }
+            std::string phone;
+            std::string country_code;
+            if (args.size() > 3) {
+                phone = args[3];
+                country_code = args[2];
+            } else {
+                phone = args[2];
+                country_code = "+86";
+            }
+            try {
+                auto re = api.sentSms(phone, country_code);
+                auto code = re["code"].GetInt();
+                if (code != 200) {
+                    av_log(NULL, AV_LOG_FATAL, "Failed to sent SMS: %s\n", re["msg"].GetString());
+                    return 1;
+                }
+                av_log(NULL, AV_LOG_INFO, "Sent successfully.\n");
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to sent SMS: %s\n", e.what());
+                return 1;
+            }
+        } else if (!cstr_stricmp(act.c_str(), "loginWithSms")) {
+            if (args.size() < 3) {
+                av_log(NULL, AV_LOG_FATAL, "Phone number needed.\n");
+                return 1;
+            }
+            std::string phone;
+            std::string country_code = "+86";
+            std::string captcha;
+            if (args.size() >= 5) {
+                country_code = args[2];
+                phone = args[3];
+                captcha = args[4];
+            } else if (args.size() == 4) {
+                if (args[2].find("+") == 0) {
+                    country_code = args[2];
+                    phone = args[3];
+                } else {
+                    phone = args[2];
+                    captcha = args[3];
+                }
+            } else {
+                phone = args[2];
+            }
+            if (captcha.empty()) {
+                try {
+                    auto re = api.sentSms(phone, country_code);
+                    auto code = re["code"].GetInt();
+                    if (code != 200) {
+                        av_log(NULL, AV_LOG_FATAL, "Failed to sent SMS: %s\n", re["msg"].GetString());
+                        return 1;
+                    }
+                } catch (std::exception& e) {
+                    av_log(NULL, AV_LOG_FATAL, "Failed to sent SMS: %s\n", e.what());
+                    return 1;
+                }
+                printf("Please input captcha: ");
+                char buf[1024];
+                if (scanf("%1023s", buf) != 1) {
+                    av_log(NULL, AV_LOG_FATAL, "Failed to read captcha.\n");
+                    return 1;
+                }
+                captcha = buf;
+            }
+            try {
+                auto re = api.loginWithSms(phone, captcha, country_code);
+                auto code = re["code"].GetInt();
+                if (code != 200) {
+                    av_log(NULL, AV_LOG_FATAL, "Failed to login: %s\n", re["msg"].GetString());
+                    return 1;
+                }
+                av_log(NULL, AV_LOG_INFO, "Login successfully.\n");
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to login: %s\n", e.what());
+                return 1;
+            }
+        } else if (!cstr_stricmp(act.c_str(), "loginRefresh")) {
+            try {
+                auto re = api.loginRefresh();
+                auto code = re["code"].GetInt();
+                if (code != 200) {
+                    av_log(NULL, AV_LOG_FATAL, "Failed to refresh login: %s\n", re["msg"].GetString());
+                    return 1;
+                }
+                av_log(NULL, AV_LOG_INFO, "Refreshed successfully.\n");
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to refresh login: %s\n", e.what());
                 return 1;
             }
         } else {
