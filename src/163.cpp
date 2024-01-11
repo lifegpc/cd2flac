@@ -172,27 +172,26 @@ std::string NeteaseMusicApi::rsaEncrypt(std::string text, std::string key) {
         av_log(nullptr, AV_LOG_ERROR, "BIO_new failed\n");
         return "";
     }
-    RSA* rsa = nullptr;
+    EVP_PKEY* rsa = nullptr;
     std::string re;
     unsigned char* buf = nullptr;
     int buf_len;
     int size;
-    const BIGNUM* n = nullptr, *e = nullptr;
-    BIGNUM* bn = nullptr, *ren = nullptr;
+    BIGNUM* n = nullptr, *e = nullptr, *bn = nullptr, *ren = nullptr;
     BN_CTX* ctx = nullptr;
-    PEM_read_bio_RSA_PUBKEY(pub, &rsa, nullptr, nullptr);
+    PEM_read_bio_PUBKEY(pub, &rsa, nullptr, nullptr);
     if (!rsa) {
         av_log(nullptr, AV_LOG_ERROR, "PEM_read_bio_RSA_PUBKEY failed\n");
         goto end;
     }
-    size = RSA_size(rsa);
+    size = EVP_PKEY_get_size(rsa);
     buf = (unsigned char*)malloc(size);
     if (!buf) {
         av_log(nullptr, AV_LOG_ERROR, "malloc failed\n");
         goto end;
     }
-    n = RSA_get0_n(rsa);
-    e = RSA_get0_e(rsa);
+    EVP_PKEY_get_bn_param(rsa, "n", &n);
+    EVP_PKEY_get_bn_param(rsa, "e", &e);
     bn = BN_new();
     if (!bn) {
         av_log(nullptr, AV_LOG_ERROR, "BN_new failed\n");
@@ -215,9 +214,11 @@ std::string NeteaseMusicApi::rsaEncrypt(std::string text, std::string key) {
     re = str_util::str_hex(re);
 end:
     if (pub) BIO_free(pub);
-    if (rsa) RSA_free(rsa);
+    if (rsa) EVP_PKEY_free(rsa);
     if (buf) free(buf);
     if (bn) BN_free(bn);
+    if (n) BN_free(n);
+    if (e) BN_free(e);
     if (ren) BN_free(ren);
     if (ctx) BN_CTX_free(ctx);
     return re;
