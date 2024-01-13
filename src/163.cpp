@@ -13,10 +13,12 @@ extern "C" {
 #include "openssl/pem.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
+#include "time_util.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <regex>
+#include <time.h>
 
 
 const std::string iv = "0102030405060708";
@@ -34,6 +36,9 @@ NeteaseMusicApi::NeteaseMusicApi(std::string cookiePath) {
     this->client.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.1938.39 Safari/537.36";
     this->client.headers["Connection"] = "close";
     this->client.headers["Referer"] = "https://music.163.com/";
+    this->basicHeader["User-Agent"] = this->client.headers["User-Agent"];
+    this->basicHeader["Connection"] = this->client.headers["Connection"];
+    this->basicHeader["Referer"] = this->client.headers["Referer"];
     this->client.cookies = &this->cookies;
     this->cookies.path = cookiePath;
     this->cookies.load();
@@ -196,6 +201,33 @@ Document NeteaseMusicApi::loginRefresh() {
     av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
     if (re.code != 200) {
         av_log(nullptr, AV_LOG_WARNING, "loginRefresh return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
+}
+
+Document NeteaseMusicApi::fetchSongUrl(std::list<uint64_t> id, int br) {
+    auto r = Request("https://interface3.music.163.com/api/song/enhance/player/url", "POST", this->client.options, this->basicHeader);
+    av_log(nullptr, AV_LOG_DEBUG, "POST /api/song/enhance/player/url\n");
+    Document d;
+    d.SetObject();
+    Value ids;
+    ids.SetArray();
+    for (auto &i: id) {
+        Value v;
+        v.SetUint64(i);
+        ids.PushBack(v, d.GetAllocator());
+    }
+    d.AddMember("ids", ids, d.GetAllocator());
+    Value brValue;
+    brValue.SetInt(br);
+    d.AddMember("br", brValue, d.GetAllocator());
+    eapi(r, d);
+    auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "fetchSongUrl return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
     }
     auto re_text = re.readAll();
     av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
@@ -394,4 +426,127 @@ rapidjson::Document NeteaseMusicApi::fromJson(std::string& s) {
     Document d;
     d.Parse(s.c_str(), s.length());
     return std::move(d);
+}
+
+void NeteaseMusicApi::eapi(Request& req, Document& d) {
+    auto cookie = parseCookie(this->cookies.getCookieHeader(req.host, req.path, req.https));
+    Value header;
+    std::map<std::string, std::string> headerMap;
+    header.SetObject();
+    if (cookie.find("osver") != cookie.end()) {
+        headerMap["osver"] = cookie["osver"];
+    } else {
+        headerMap["osver"] = "17,1,2";
+    }
+    if (cookie.find("deviceId") != cookie.end()) {
+        headerMap["deviceId"] = cookie["deviceId"];
+    }
+    if (cookie.find("appver") != cookie.end()) {
+        headerMap["appver"] = cookie["appver"];
+    } else {
+        headerMap["appver"] = "8.9.70";
+    }
+    if (cookie.find("versioncode") != cookie.end()) {
+        headerMap["versioncode"] = cookie["versioncode"];
+    } else {
+        headerMap["versioncode"] = "140";
+    }
+    if (cookie.find("mobilename") != cookie.end()) {
+        headerMap["mobilename"] = cookie["mobilename"];
+    }
+    if (cookie.find("buildver") != cookie.end()) {
+        headerMap["buildver"] = cookie["buildver"];
+    } else {
+        headerMap["buildver"] = std::to_string(time_util::time_ns() / 1000000LL).substr(0, 10);
+    }
+    if (cookie.find("resolution") != cookie.end()) {
+        headerMap["resolution"] = cookie["resolution"];
+    } else {
+        headerMap["resolution"] = "1920x1080";
+    }
+    if (cookie.find("__csrf") != cookie.end()) {
+        headerMap["__csrf"] = cookie["__csrf"];
+    } else {
+        headerMap["__csrf"] = "";
+    }
+    if (cookie.find("os") != cookie.end()) {
+        headerMap["os"] = cookie["os"];
+    } else {
+        headerMap["os"] = "ios";
+    }
+    if (cookie.find("channel") != cookie.end()) {
+        headerMap["channel"] = cookie["channel"];
+    }
+    if (!randed) {
+        srand(time(nullptr));
+        randed = true;
+    }
+    char ran[5] = { 0 };
+    int rannum = rand() % 1000;
+    snprintf(ran, 5, "%04d", rannum);
+    std::string t = std::to_string(time_util::time_ns() / 1000000LL) + "_" + std::string(ran, 4);
+    headerMap["requestId"] = t;
+    if (cookie.find("MUSIC_U") != cookie.end()) {
+        headerMap["MUSIC_U"] = cookie["MUSIC_U"];
+    }
+    if (cookie.find("MUSIC_A") != cookie.end()) {
+        headerMap["MUSIC_A"] = cookie["MUSIC_A"];
+    }
+    req.options.use_custom_cookie = true;
+    for (auto &i: headerMap) {
+        Value v;
+        v.SetString(i.second.c_str(), d.GetAllocator());
+        Value k;
+        k.SetString(i.first.c_str(), d.GetAllocator());
+        header.AddMember(k, v, d.GetAllocator());
+    }
+    req.headers["Cookie"] = dumpCookie(headerMap);
+    d.AddMember("header", header, d.GetAllocator());
+    auto text = toJson(d);
+    av_log(nullptr, AV_LOG_DEBUG, "Request params: %s\n", text.c_str());
+    auto url = std::regex_replace(req.path, weapiRegex, "api");
+    std::string message = "nobody" + url + "use" + text + "md5forencrypt";
+    auto digest = md5Encode(message);
+    if (digest.empty()) {
+        throw std::runtime_error("md5Encode failed");
+    }
+    digest = str_util::str_hex(digest);
+    std::string data = url + "-36cd479b6b5-" + text + "-36cd479b6b5-" + digest;
+    std::string param = aesEncrypt(data, "ecb", eapiKey, "", false);
+    if (param.empty()) {
+        throw std::runtime_error("aesEncrypt failed");
+    }
+    QueryData query;
+    query.set("params", param);
+    req.setBody(new QueryData(query));
+    req.path = std::regex_replace(req.path, weapiRegex, "eapi");
+}
+
+std::string NeteaseMusicApi::md5Encode(std::string text) {
+    const EVP_MD* md5 = EVP_md5();
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    std::string re;
+    int res = 0;
+    unsigned char buf[16];
+    unsigned int out_len = 0;
+    if (!ctx) {
+        av_log(nullptr, AV_LOG_ERROR, "EVP_MD_CTX_new failed\n");
+        return "";
+    }
+    if (!EVP_DigestInit(ctx, md5)) {
+        av_log(nullptr, AV_LOG_ERROR, "EVP_DigestInit failed\n");
+        goto end;
+    }
+    if (!EVP_DigestUpdate(ctx, text.c_str(), text.length())) {
+        av_log(nullptr, AV_LOG_ERROR, "EVP_DigestUpdate failed\n");
+        goto end;
+    }
+    if (!EVP_DigestFinal(ctx, buf, &out_len)) {
+        av_log(nullptr, AV_LOG_ERROR, "EVP_DigestFinal failed\n");
+        goto end;
+    }
+    re = std::string((const char*)buf, out_len);
+end:
+    EVP_MD_CTX_free(ctx);
+    return re;
 }

@@ -121,6 +121,8 @@ Actions:\n\
     fetchAlbum ID           Fetch album detail.\n\
     fetchLyric ID           Fetch lyric.\n\
     fetchLoginStatus        Fetch login status.\n\
+    fetchSongUrl ID [ID [ID ...]]\n\
+                            Fetch song URL.\n\
     sentSms [+CONTRYCODE] PHONE\n\
                             Send CAPTCHA with SMS.\n\
     loginWithSms [+CONTRYCODE] PHONE [CAPTCHA]\n\
@@ -606,6 +608,27 @@ int main(int argc, char* argv[]) {
                 av_log(NULL, AV_LOG_INFO, "Refreshed successfully.\n");
             } catch (std::exception& e) {
                 av_log(NULL, AV_LOG_FATAL, "Failed to refresh login: %s\n", e.what());
+                return 1;
+            }
+        } else if (!cstr_stricmp(act.c_str(), "fetchSongUrl")) {
+            if (args.size() == 2) {
+                av_log(NULL, AV_LOG_FATAL, "At least one song id needed.\n");
+                return 1;
+            }
+            std::list<std::uint64_t> ids;
+            uint64_t t;
+            for (size_t i = 2; i < args.size(); i++) {
+                if (sscanf(args[i].c_str(), "%" SCNu64, &t) != 1) {
+                    av_log(NULL, AV_LOG_FATAL, "Invalid song id: %s\n", args[i].c_str());
+                    return 1;
+                }
+                ids.push_back(t);
+            }
+            try {
+                auto re = api.fetchSongUrl(ids);
+                printf("%s\n", api.toJson(re).c_str());
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to fetch song URL: %s\n", e.what());
                 return 1;
             }
         } else {
