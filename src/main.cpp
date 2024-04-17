@@ -19,6 +19,7 @@
 #include "core.h"
 #include "cue.h"
 #include "info.h"
+#include "music_brain_z.h"
 #include "open.h"
 
 #if _WIN32
@@ -139,6 +140,21 @@ Options:\n\
     default_163_cookies_file().c_str());
 }
 
+void print_mbz_help() {
+    printf("Usage: cd2flac mbz [OPTIONS] ACTIONS\n\
+\n\
+Actions:\n\
+    lookup ENTITY_TYPE MBID [INC ...]\n\
+                            Lookup of an entity.\n\
+Options:\n\
+    -h, --help              Print this help message.\n\
+    -v, --verbose           Enable verbose logging.\n\
+    -V, --version           Print version.\n\
+    --debug                 Enable debug logging.\n\
+    --trace                 Enable trace logging.\n\
+    --print-level           Print log level.\n");
+}
+
 void print_version(bool verbose) {
     printf("cd2flac v%s Copyright (C) 2024  lifegpc\n\
 Source code: https://github.com/lifegpc/cd2flac \n\
@@ -236,6 +252,7 @@ int main(int argc, char* argv[]) {
     bool print_level = false;
     bool is_cue = false;
     bool n163 = false;
+    bool nmbz = false;
     bool printh = false;
     std::string n163_cookies;
 #if HAVE_INIH
@@ -371,10 +388,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     if (args[0] == "163") n163 = true;
+    else if (args[0] == "mbz") nmbz = true;
     else device = args[0];
     if (printh) {
-        if (!n163) print_help();
-        else print_163_help();
+        if (n163) print_163_help();
+        else if (nmbz) print_mbz_help();
+        else print_help();
         return 0;
     }
     if (!device.empty()) {
@@ -634,6 +653,34 @@ int main(int argc, char* argv[]) {
         } else {
             av_log(NULL, AV_LOG_FATAL, "Unknown action: %s\n", act.c_str());
             return 1;
+        }
+        return 0;
+    }
+    if (nmbz) {
+        MusicBrainZApi api;
+        if (args.size() == 1) {
+            print_mbz_help();
+            return 0;
+        }
+        std::string act = args[1];
+        if (!cstr_stricmp(act.c_str(), "lookup")) {
+            if (args.size() < 4) {
+                av_log(NULL, AV_LOG_FATAL, "Entity type and MBID needed.\n");
+                return 1;
+            }
+            std::string entity = args[2];
+            std::string mbid = args[3];
+            std::list<std::string> inc;
+            for (size_t i = 4; i < args.size(); i++) {
+                inc.push_back(args[i]);
+            }
+            try {
+                auto re = api.lookup(entity, mbid, inc);
+                printf("%s\n", api.toJson(re).c_str());
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to lookup: %s\n", e.what());
+                return 1;
+            }
         }
         return 0;
     }

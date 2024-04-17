@@ -66,7 +66,7 @@ endif()
 add_executable(cd2flac
 src/main.cpp src/info.h src/info.c src/core.h src/core.cpp src/open.h src/open.c
 src/cue.h src/cue.cpp src/cue_track_list.h src/cue_track_list.cpp src/163.h
-src/163.cpp "${OFILES}" ${CD2FLAC_RC})
+src/163.cpp src/music_brain_z.h src/music_brain_z.cpp "${OFILES}" ${CD2FLAC_RC})
 add_dependencies(cd2flac cd2flac_version)
 target_compile_definitions(cd2flac PRIVATE -DHAVE_CONFIG_H)
 if (TARGET getopt)
