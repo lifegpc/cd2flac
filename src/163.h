@@ -18,6 +18,7 @@ public:
     rapidjson::Document loginWithSms(std::string phone, std::string code, std::string countrycode = "86");
     rapidjson::Document loginRefresh();
     rapidjson::Document fetchSongUrl(std::list<uint64_t> id, int br = 999000);
+    rapidjson::Document search(std::string keywords, int64_t type = 1, int64_t limit = 30, int64_t offset = 0);
     std::string aesEncrypt(std::string text, std::string mode, std::string key, std::string iv, bool base64 = true);
     std::string base64Encode(std::string text);
     std::string rsaEncrypt(std::string text, std::string key);

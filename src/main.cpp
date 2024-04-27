@@ -124,6 +124,8 @@ Actions:\n\
     fetchLoginStatus        Fetch login status.\n\
     fetchSongUrl ID [ID [ID ...]]\n\
                             Fetch song URL.\n\
+    search KEYWORDS [TYPE] [LIMIT] [OFFSET]\n\
+                            Search keywords.\n\
     sentSms [+CONTRYCODE] PHONE\n\
                             Send CAPTCHA with SMS.\n\
     loginWithSms [+CONTRYCODE] PHONE [CAPTCHA]\n\
@@ -648,6 +650,40 @@ int main(int argc, char* argv[]) {
                 printf("%s\n", api.toJson(re).c_str());
             } catch (std::exception& e) {
                 av_log(NULL, AV_LOG_FATAL, "Failed to fetch song URL: %s\n", e.what());
+                return 1;
+            }
+        } else if (!cstr_stricmp(act.c_str(), "search")) {
+            if (args.size() < 3) {
+                av_log(NULL, AV_LOG_FATAL, "Keywords needed.\n");
+                return 1;
+            }
+            std::string keywords = args[2];
+            int64_t type = 1;
+            int64_t limit = 30;
+            int64_t offset = 0;
+            if (args.size() > 3) {
+                if (sscanf(args[3].c_str(), "%" SCNd64, &type) != 1) {
+                    av_log(NULL, AV_LOG_FATAL, "Invalid type: %s\n", args[3].c_str());
+                    return 1;
+                }
+            }
+            if (args.size() > 4) {
+                if (sscanf(args[4].c_str(), "%" SCNd64, &limit) != 1) {
+                    av_log(NULL, AV_LOG_FATAL, "Invalid limit: %s\n", args[4].c_str());
+                    return 1;
+                }
+            }
+            if (args.size() > 5) {
+                if (sscanf(args[5].c_str(), "%" SCNd64, &offset) != 1) {
+                    av_log(NULL, AV_LOG_FATAL, "Invalid offset: %s\n", args[5].c_str());
+                    return 1;
+                }
+            }
+            try {
+                auto re = api.search(keywords, type, limit, offset);
+                printf("%s\n", api.toJson(re).c_str());
+            } catch (std::exception& e) {
+                av_log(NULL, AV_LOG_FATAL, "Failed to search: %s\n", e.what());
                 return 1;
             }
         } else {

@@ -130,6 +130,61 @@ Document NeteaseMusicApi::fetchLoginStatus() {
     return fromJson(re_text);
 }
 
+Document NeteaseMusicApi::search(std::string keywords, int64_t type, int64_t limit, int64_t offset) {
+    if (type == 2000) {
+        auto r = this->client.request("/api/search/voice/get", "POST");
+        av_log(nullptr, AV_LOG_DEBUG, "POST /api/search/voice/get\n");
+        Document d;
+        d.SetObject();
+        Value keyword;
+        keyword.SetString(keywords.c_str(), d.GetAllocator());
+        d.AddMember("keyword", keyword, d.GetAllocator());
+        Value scene;
+        scene.SetString("normal", d.GetAllocator());
+        d.AddMember("scene", scene, d.GetAllocator());
+        Value dlimit;
+        dlimit.SetInt64(limit);
+        d.AddMember("limit", dlimit, d.GetAllocator());
+        Value doffset;
+        doffset.SetInt64(offset);
+        d.AddMember("offset", doffset, d.GetAllocator());
+        weapi(r, d);
+        auto re = r.send();
+        av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+        if (re.code != 200) {
+            av_log(nullptr, AV_LOG_WARNING, "search return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+        }
+        auto re_text = re.readAll();
+        av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+        return fromJson(re_text);
+    }
+    auto r = this->client.request("/api/search/get", "POST");
+    av_log(nullptr, AV_LOG_DEBUG, "POST /api/search/get\n");
+    Document d;
+    d.SetObject();
+    Value s;
+    s.SetString(keywords.c_str(), d.GetAllocator());
+    d.AddMember("s", s, d.GetAllocator());
+    Value dtype;
+    dtype.SetInt64(type);
+    d.AddMember("type", dtype, d.GetAllocator());
+    Value dlimit;
+    dlimit.SetInt64(limit);
+    d.AddMember("limit", dlimit, d.GetAllocator());
+    Value doffset;
+    doffset.SetInt64(offset);
+    d.AddMember("offset", doffset, d.GetAllocator());
+    weapi(r, d);
+    auto re = r.send();
+    av_log(nullptr, AV_LOG_DEBUG, "HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    if (re.code != 200) {
+        av_log(nullptr, AV_LOG_WARNING, "search return HTTP %" PRIu16 " %s\n", re.code, re.reason.c_str());
+    }
+    auto re_text = re.readAll();
+    av_log(nullptr, AV_LOG_DEBUG, "Response: %s\n", re_text.c_str());
+    return fromJson(re_text);
+}
+
 Document NeteaseMusicApi::sentSms(std::string phone, std::string countrycode) {
     auto r = this->client.request("/api/sms/captcha/sent", "POST");
     av_log(nullptr, AV_LOG_DEBUG, "POST /api/sms/captcha/sent\n");
